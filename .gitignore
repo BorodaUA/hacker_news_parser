@@ -1,4 +1,10 @@
 .vscode
 .env
+__pycache__
 hacker_news/__pycache__
 hacker_news/spiders/__pycache__
+twistd.pid
+dbs/*
+logs/*
+!dbs/.gitkeep
+!logs/.gitkeep
