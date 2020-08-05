@@ -6,13 +6,13 @@ from scrapy.exceptions import CloseSpider
 from scrapy import Request, signals
 from sqlalchemy import create_engine
 from sqlalchemy.ext.automap import automap_base
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.orm import sessionmaker, scoped_session, Session
 from datetime import datetime
-from sqlalchemy_utils import database_exists, create_database
+#from sqlalchemy_utils import database_exists, create_database
 from dotenv import load_dotenv
-from sqlalchemy.exc import InternalError
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from hacker_news.models import hn_db
+#from sqlalchemy.exc import InternalError
+#from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+#from hacker_news.models import hn_db
 
 load_dotenv()
 
@@ -23,23 +23,15 @@ class HackerNewsTopStorySpider(scrapy.Spider):
     def __init__(self, **kwargs):
         #
         self.hn_db_url = os.environ.get("HACKER_NEWS_DATABASE_URI")
-        self.postges_db_url = os.environ.get("POSTGRES_DATABASE_URI")
-        #
-        if not database_exists(self.hn_db_url):
-            self.db_name = os.environ.get("HACKER_NEWS_DATABASE_NAME")
-            self.engine = create_engine(self.postges_db_url)
-            with self.engine.connect() as conn:
-                conn.connection.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-                conn.execute(
-                    f"CREATE DATABASE {self.db_name} ENCODING 'utf8' TEMPLATE template1"
-                )
-        #
-        hn_engine = create_engine(self.hn_db_url)
-        hn_db.Base.session = scoped_session(
-            sessionmaker(autocommit=False, autoflush=False, bind=hn_engine,)
+        self.Base = automap_base()
+        self.engine = create_engine(self.hn_db_url)
+        self.Base.prepare(self.engine, reflect=True)
+        self.HackerNewsTopStory = self.Base.classes.hacker_news_top_story
+        self.Base.session = scoped_session(
+            sessionmaker(autocommit=False, autoflush=False, bind=self.engine,)
         )
-        hn_db.Base.query = hn_db.Base.session.query_property()
-        hn_db.Base.metadata.create_all(hn_engine)
+        self.HackerNewsTopStory.query = self.Base.session.query_property()
+        self.session = Session(self.engine)
         #
         self.list_of_items = []
 
@@ -61,13 +53,13 @@ class HackerNewsTopStorySpider(scrapy.Spider):
             #
             i["origin"] = "hacker_news"
             #
-            found_item = hn_db.HackerNewsTopStory.query.filter(
-                hn_db.HackerNewsTopStory.id == i["id"]
+            found_item = self.HackerNewsTopStory.query.filter(
+                self.HackerNewsTopStory.id == i["id"]
             ).first()
             #
             if found_item:
-                hn_db.HackerNewsTopStory.query.filter(
-                    hn_db.HackerNewsTopStory.id == i["id"]
+                self.HackerNewsTopStory.query.filter(
+                    self.HackerNewsTopStory.id == i["id"]
                 ).update(
                     {
                         "parsed_time": datetime.strftime(
@@ -93,11 +85,11 @@ class HackerNewsTopStorySpider(scrapy.Spider):
                 )
             else:
                 i.pop("item_order")
-                data = hn_db.HackerNewsTopStory(**i)
-                hn_db.Base.session.add(data)
+                data = self.HackerNewsTopStory(**i)
+                self.session.add(data)
         #
-        hn_db.Base.session.commit()
-        hn_db.Base.session.close()
+        self.session.commit()
+        self.session.close()
 
     def start_requests(self):
         yield Request(

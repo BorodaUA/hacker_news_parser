@@ -18,7 +18,8 @@ RUN apk add  \
     libxml2-dev \
     libxslt-dev \
     g++ \
-    unzip
+    unzip \
+    git
 #
 COPY . /usr/src/hacker_news_parser
 RUN pip install -r requirements.txt
