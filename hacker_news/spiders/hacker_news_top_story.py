@@ -2,17 +2,13 @@ import json
 import os
 import scrapy
 import logging
-from scrapy.exceptions import CloseSpider
 from scrapy import Request, signals
 from sqlalchemy import create_engine
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import sessionmaker, scoped_session, Session
 from datetime import datetime
-#from sqlalchemy_utils import database_exists, create_database
 from dotenv import load_dotenv
-#from sqlalchemy.exc import InternalError
-#from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-#from hacker_news.models import hn_db
+from sqlalchemy.exc import OperationalError
 
 load_dotenv()
 
@@ -21,7 +17,9 @@ class HackerNewsTopStorySpider(scrapy.Spider):
     name = "hacker_news_top_story"
 
     def __init__(self, **kwargs):
-        #
+        self.list_of_items = []
+
+    def db_connect(self):
         self.hn_db_url = os.environ.get("HACKER_NEWS_DATABASE_URI")
         self.Base = automap_base()
         self.engine = create_engine(self.hn_db_url)
@@ -32,8 +30,10 @@ class HackerNewsTopStorySpider(scrapy.Spider):
         )
         self.HackerNewsTopStory.query = self.Base.session.query_property()
         self.session = Session(self.engine)
-        #
-        self.list_of_items = []
+        return {
+            'HackerNewsTopStory': self.HackerNewsTopStory, 
+            'session': self.session 
+            }
 
     @classmethod
     def from_crawler(cls, crawler, *args, **kwargs):
@@ -42,61 +42,78 @@ class HackerNewsTopStorySpider(scrapy.Spider):
         return spider
 
     def spider_closed(self, spider):
-        sorted_list_of_items = sorted(
-            self.list_of_items, key=lambda k: k["item_order"], reverse=True
-        )
-        for i in sorted_list_of_items:
-            #
-            i["parsed_time"] = datetime.strftime(
-                datetime.now(), "%Y-%m-%d %H:%M:%S.%f"
-            )[:-3]
-            #
-            i["origin"] = "hacker_news"
-            #
-            found_item = self.HackerNewsTopStory.query.filter(
-                self.HackerNewsTopStory.id == i["id"]
-            ).first()
-            #
-            if found_item:
-                self.HackerNewsTopStory.query.filter(
+        try:
+            self.HackerNewsTopStory = self.db_connect()['HackerNewsTopStory']
+            self.session = self.db_connect()['session']
+            # 
+            sorted_list_of_items = sorted(
+                self.list_of_items, key=lambda k: k["item_order"], reverse=True
+            )
+            for i in sorted_list_of_items:
+                #
+                i["parsed_time"] = datetime.strftime(
+                    datetime.now(), "%Y-%m-%d %H:%M:%S.%f"
+                )[:-3]
+                #
+                i["origin"] = "hacker_news"
+                #
+                found_item = self.HackerNewsTopStory.query.filter(
                     self.HackerNewsTopStory.id == i["id"]
-                ).update(
-                    {
-                        "parsed_time": datetime.strftime(
-                            datetime.now(), "%Y-%m-%d %H:%M:%S.%f"
-                        )[:-3],
-                        # "hn_url": i["hn_url"],
-                        "id": i["id"],
-                        "deleted": i["deleted"],
-                        "type": i["type"],
-                        "by": i["by"],
-                        "time": i["time"],
-                        "text": i["text"],
-                        "dead": i["dead"],
-                        "parent": i["parent"],
-                        "poll": i["poll"],
-                        "kids": i["kids"],
-                        "url": i["url"],
-                        "score": i["score"],
-                        "title": i["title"],
-                        "parts": i["parts"],
-                        "descendants": i["descendants"],
-                    }
-                )
-            else:
-                i.pop("item_order")
-                data = self.HackerNewsTopStory(**i)
-                self.session.add(data)
-        #
-        self.session.commit()
-        self.session.close()
-
+                ).first()
+                #
+                if found_item:
+                    self.HackerNewsTopStory.query.filter(
+                        self.HackerNewsTopStory.id == i["id"]
+                    ).update(
+                        {
+                            "parsed_time": datetime.strftime(
+                                datetime.now(), "%Y-%m-%d %H:%M:%S.%f"
+                            )[:-3],
+                            # "hn_url": i["hn_url"],
+                            "id": i["id"],
+                            "deleted": i["deleted"],
+                            "type": i["type"],
+                            "by": i["by"],
+                            "time": i["time"],
+                            "text": i["text"],
+                            "dead": i["dead"],
+                            "parent": i["parent"],
+                            "poll": i["poll"],
+                            "kids": i["kids"],
+                            "url": i["url"],
+                            "score": i["score"],
+                            "title": i["title"],
+                            "parts": i["parts"],
+                            "descendants": i["descendants"],
+                        }
+                    )
+                else:
+                    i.pop("item_order")
+                    data = self.HackerNewsTopStory(**i)
+                    self.session.add(data)
+            #
+            self.session.commit()
+            self.session.close()
+        
+        except OperationalError:
+            logging.debug('No database found.')
+        except AttributeError:
+            logging.debug('No tables found.')
+    
+    
     def start_requests(self):
-        yield Request(
-            url="https://hacker-news.firebaseio.com/v0/topstories.json",
-            callback=self.parse,
-            dont_filter=True,
-        )
+        try:
+            self.HackerNewsTopStory = self.db_connect()['HackerNewsTopStory']
+            yield Request(
+                url="https://hacker-news.firebaseio.com/v0/topstories.json",
+                callback=self.parse,
+                dont_filter=True,
+            )
+        except OperationalError:
+            logging.debug('No database found.')
+        except AttributeError:
+            logging.debug('No tables found.')
+
 
     def parse(self, response):
         self.resp = json.loads(response.text)
