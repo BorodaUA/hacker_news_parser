@@ -2,17 +2,13 @@ import json
 import os
 import scrapy
 import logging
-from scrapy.exceptions import CloseSpider
 from scrapy import Request, signals
 from sqlalchemy import create_engine
 from sqlalchemy.ext.automap import automap_base
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.orm import sessionmaker, scoped_session, Session
 from datetime import datetime
-from sqlalchemy_utils import database_exists, create_database
 from dotenv import load_dotenv
-from sqlalchemy.exc import InternalError
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from hacker_news.models import hn_db
+from sqlalchemy.exc import OperationalError
 
 load_dotenv()
 
@@ -22,26 +18,24 @@ class HackerNewsNewStorySpider(scrapy.Spider):
 
     def __init__(self, **kwargs):
         #
-        self.hn_db_url = os.environ.get("HACKER_NEWS_DATABASE_URI")
-        self.postges_db_url = os.environ.get("POSTGRES_DATABASE_URI")
-        #
-        if not database_exists(self.hn_db_url):
-            self.db_name = os.environ.get("HACKER_NEWS_DATABASE_NAME")
-            self.engine = create_engine(self.postges_db_url)
-            with self.engine.connect() as conn:
-                conn.connection.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-                conn.execute(
-                    f"CREATE DATABASE {self.db_name} ENCODING 'utf8' TEMPLATE template1"
-                )
-        #
-        hn_engine = create_engine(self.hn_db_url)
-        hn_db.Base.session = scoped_session(
-            sessionmaker(autocommit=False, autoflush=False, bind=hn_engine,)
-        )
-        hn_db.Base.query = hn_db.Base.session.query_property()
-        hn_db.Base.metadata.create_all(hn_engine)
-        #
         self.list_of_items = []
+    
+
+    def db_connect(self):
+        self.hn_db_url = os.environ.get("HACKER_NEWS_DATABASE_URI")
+        self.Base = automap_base()
+        self.engine = create_engine(self.hn_db_url)
+        self.Base.prepare(self.engine, reflect=True)
+        self.HackerNewsNewStory = self.Base.classes.hacker_news_new_story
+        self.Base.session = scoped_session(
+            sessionmaker(autocommit=False, autoflush=False, bind=self.engine,)
+        )
+        self.HackerNewsNewStory.query = self.Base.session.query_property()
+        self.session = Session(self.engine)
+        return {
+            'HackerNewsNewStory': self.HackerNewsNewStory, 
+            'session': self.session 
+            }
 
     @classmethod
     def from_crawler(cls, crawler, *args, **kwargs):
@@ -50,61 +44,75 @@ class HackerNewsNewStorySpider(scrapy.Spider):
         return spider
 
     def spider_closed(self, spider):
-        sorted_list_of_items = sorted(
-            self.list_of_items, key=lambda k: k["item_order"], reverse=True
-        )
-        for i in sorted_list_of_items:
+        try:
+            self.HackerNewsNewStory = self.db_connect()['HackerNewsNewStory']
+            self.session = self.db_connect()['session']
+
+            sorted_list_of_items = sorted(
+                self.list_of_items, key=lambda k: k["item_order"], reverse=True
+            )
+            for i in sorted_list_of_items:
+                #
+                i["parsed_time"] = datetime.strftime(
+                    datetime.now(), "%Y-%m-%d %H:%M:%S.%f"
+                )[:-3]
+                #
+                i["origin"] = "hacker_news"
+                #
+                found_item = self.HackerNewsNewStory.query.filter(
+                    self.HackerNewsNewStory.id == i["id"]
+                ).first()
+                #
+                if found_item:
+                    self.HackerNewsNewStory.query.filter(
+                        self.HackerNewsNewStory.id == i["id"]
+                    ).update(
+                        {
+                            "parsed_time": datetime.strftime(
+                                datetime.now(), "%Y-%m-%d %H:%M:%S.%f"
+                            )[:-3],
+                            # "hn_url": i["hn_url"],
+                            "id": i["id"],
+                            "deleted": i["deleted"],
+                            "type": i["type"],
+                            "by": i["by"],
+                            "time": i["time"],
+                            "text": i["text"],
+                            "dead": i["dead"],
+                            "parent": i["parent"],
+                            "poll": i["poll"],
+                            "kids": i["kids"],
+                            "url": i["url"],
+                            "score": i["score"],
+                            "title": i["title"],
+                            "parts": i["parts"],
+                            "descendants": i["descendants"],
+                        }
+                    )
+                else:
+                    i.pop("item_order")
+                    data = self.HackerNewsNewStory(**i)
+                    self.session.add(data)
             #
-            i["parsed_time"] = datetime.strftime(
-                datetime.now(), "%Y-%m-%d %H:%M:%S.%f"
-            )[:-3]
-            #
-            i["origin"] = "hacker_news"
-            #
-            found_item = hn_db.HackerNewsNewStory.query.filter(
-                hn_db.HackerNewsNewStory.id == i["id"]
-            ).first()
-            #
-            if found_item:
-                hn_db.HackerNewsNewStory.query.filter(
-                    hn_db.HackerNewsNewStory.id == i["id"]
-                ).update(
-                    {
-                        "parsed_time": datetime.strftime(
-                            datetime.now(), "%Y-%m-%d %H:%M:%S.%f"
-                        )[:-3],
-                        # "hn_url": i["hn_url"],
-                        "id": i["id"],
-                        "deleted": i["deleted"],
-                        "type": i["type"],
-                        "by": i["by"],
-                        "time": i["time"],
-                        "text": i["text"],
-                        "dead": i["dead"],
-                        "parent": i["parent"],
-                        "poll": i["poll"],
-                        "kids": i["kids"],
-                        "url": i["url"],
-                        "score": i["score"],
-                        "title": i["title"],
-                        "parts": i["parts"],
-                        "descendants": i["descendants"],
-                    }
-                )
-            else:
-                i.pop("item_order")
-                data = hn_db.HackerNewsNewStory(**i)
-                hn_db.Base.session.add(data)
-        #
-        hn_db.Base.session.commit()
-        hn_db.Base.session.close()
+            self.session.commit()
+            self.session.close()
+        except OperationalError:
+            logging.debug('No database found.')
+        except AttributeError:
+            logging.debug('No tables found.')
 
     def start_requests(self):
-        yield Request(
-            url="https://hacker-news.firebaseio.com/v0/newstories.json",
-            callback=self.parse,
-            dont_filter=True,
-        )
+        try:
+            self.HackerNewsNewStory = self.db_connect()['HackerNewsNewStory']
+            yield Request(
+                url="https://hacker-news.firebaseio.com/v0/newstories.json",
+                callback=self.parse,
+                dont_filter=True,
+            )
+        except OperationalError:
+            logging.debug('No database found.')
+        except AttributeError:
+            logging.debug('No tables found.')
 
     def parse(self, response):
         self.resp = json.loads(response.text)
@@ -124,13 +132,6 @@ class HackerNewsNewStorySpider(scrapy.Spider):
             item_order = response.meta.get("item_order")
             #
             result_dict["item_order"] = item_order
-            #
-            # result_dict["parse_dt"] = datetime.strftime(datetime.now(), "%Y-%m-%d %H:%M:%S")
-            #
-            # result_dict["hn_url"] = "https://news.ycombinator.com/item?id=" + str(
-            #     scrape_item.get("id", None)
-            # )
-            #
             result_dict["id"] = scrape_item.get("id")
             result_dict["deleted"] = scrape_item.get("deleted")
             result_dict["type"] = scrape_item.get("type")
