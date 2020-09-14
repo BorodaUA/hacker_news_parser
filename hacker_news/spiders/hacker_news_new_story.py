@@ -45,8 +45,9 @@ class HackerNewsNewStorySpider(scrapy.Spider):
 
     def spider_closed(self, spider):
         try:
-            self.HackerNewsNewStory = self.db_connect()['HackerNewsNewStory']
-            self.session = self.db_connect()['session']
+            db_info = self.db_connect()
+            self.HackerNewsNewStory = db_info['HackerNewsNewStory']
+            self.session = db_info['session']
 
             sorted_list_of_items = sorted(
                 self.list_of_items, key=lambda k: k["item_order"], reverse=True
@@ -103,7 +104,8 @@ class HackerNewsNewStorySpider(scrapy.Spider):
 
     def start_requests(self):
         try:
-            self.HackerNewsNewStory = self.db_connect()['HackerNewsNewStory']
+            db_info = self.db_connect()
+            self.HackerNewsNewStory = db_info['HackerNewsNewStory']
             yield Request(
                 url="https://hacker-news.firebaseio.com/v0/newstories.json",
                 callback=self.parse,

@@ -47,9 +47,10 @@ class HackerNewsTopStoryCommentSpider(scrapy.Spider):
 
     def spider_closed(self, spider):
         try:
-            self.HackerNewsTopStory = self.db_connect()['HackerNewsTopStory']
-            self.HackerNewsTopStoryComment = self.db_connect()['HackerNewsTopStoryComment']
-            self.session = self.db_connect()['session']
+            db_info = self.db_connect()
+            self.HackerNewsTopStory = db_info['HackerNewsTopStory']
+            self.HackerNewsTopStoryComment = db_info['HackerNewsTopStoryComment']
+            self.session = db_info['session']
             # 
             sorted_list_of_items = sorted(
                 self.list_of_items, key=lambda k: k["item_order"], reverse=True
@@ -63,12 +64,12 @@ class HackerNewsTopStoryCommentSpider(scrapy.Spider):
                 i["origin"] = "hacker_news"
                 #
                 found_item = self.HackerNewsTopStoryComment.query.filter(
-                    self.HackerNewsTopStoryComment.id == i["hn_id"]
+                    self.HackerNewsTopStoryComment.hn_id == i["hn_id"]
                 ).first()
                 #
                 if found_item:
                     self.HackerNewsTopStoryComment.query.filter(
-                        self.HackerNewsTopStoryComment.id == i["hn_id"]
+                        self.HackerNewsTopStoryComment.hn_id == i["hn_id"]
                     ).update(
                         {
                             "parsed_time": datetime.strftime(
@@ -106,8 +107,9 @@ class HackerNewsTopStoryCommentSpider(scrapy.Spider):
 
     def start_requests(self):
         try:
-            self.HackerNewsTopStory = self.db_connect()['HackerNewsTopStory']
-            self.HackerNewsTopStoryComment = self.db_connect()['HackerNewsTopStoryComment']
+            db_info = self.db_connect()
+            self.HackerNewsTopStory = db_info['HackerNewsTopStory']
+            self.HackerNewsTopStoryComment = db_info['HackerNewsTopStoryComment']
             found_item = (
                 self.HackerNewsTopStory.query.with_entities(self.HackerNewsTopStory.kids)
                 .order_by(desc(self.HackerNewsTopStory.parsed_time))
