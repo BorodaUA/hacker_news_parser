@@ -49,9 +49,10 @@ class HackerNewsNewStoryCommentSpider(scrapy.Spider):
 
     def spider_closed(self, spider):
         try:
-            self.HackerNewsNewStory = self.db_connect()['HackerNewsNewStory']
-            self.HackerNewsNewStoryComment = self.db_connect()['HackerNewsNewStoryComment']
-            self.session = self.db_connect()['session']
+            db_info = self.db_connect()
+            self.HackerNewsNewStory = db_info['HackerNewsNewStory']
+            self.HackerNewsNewStoryComment = db_info['HackerNewsNewStoryComment']
+            self.session = db_info['session']
             # 
             sorted_list_of_items = sorted(
                 self.list_of_items, key=lambda k: k["item_order"], reverse=True
@@ -65,18 +66,18 @@ class HackerNewsNewStoryCommentSpider(scrapy.Spider):
                 i["origin"] = "hacker_news"
                 #
                 found_item = self.HackerNewsNewStoryComment.query.filter(
-                    self.HackerNewsNewStoryComment.id == i["id"]
+                    self.HackerNewsNewStoryComment.hn_id == i["hn_id"]
                 ).first()
                 #
                 if found_item:
                     self.HackerNewsNewStoryComment.query.filter(
-                        self.HackerNewsNewStoryComment.id == i["id"]
+                        self.HackerNewsNewStoryComment.hn_id == i["hn_id"]
                     ).update(
                         {
                             "parsed_time": datetime.strftime(
                                 datetime.now(), "%Y-%m-%d %H:%M:%S.%f"
                             )[:-3],
-                            "id": i["id"],
+                            "hn_id": i["hn_id"],
                             "deleted": i["deleted"],
                             "type": i["type"],
                             "by": i["by"],
@@ -107,8 +108,9 @@ class HackerNewsNewStoryCommentSpider(scrapy.Spider):
 
     def start_requests(self):
         try:
-            self.HackerNewsNewStory = self.db_connect()['HackerNewsNewStory']
-            self.HackerNewsNewStoryComment = self.db_connect()['HackerNewsNewStoryComment']
+            db_info = self.db_connect()
+            self.HackerNewsNewStory = db_info['HackerNewsNewStory']
+            self.HackerNewsNewStoryComment = db_info['HackerNewsNewStoryComment']
             found_item = (
                 self.HackerNewsNewStory.query.with_entities(self.HackerNewsNewStory.kids)
                 .order_by(desc(self.HackerNewsNewStory.parsed_time))
@@ -139,7 +141,7 @@ class HackerNewsNewStoryCommentSpider(scrapy.Spider):
             #
             item_order = response.meta.get("item_order")
             result_dict["item_order"] = item_order
-            result_dict["id"] = scrape_item.get("id")
+            result_dict["hn_id"] = scrape_item.get("id")
             result_dict["deleted"] = scrape_item.get("deleted")
             result_dict["type"] = scrape_item.get("type")
             result_dict["by"] = scrape_item.get("by")
