@@ -59,19 +59,20 @@ class HackerNewsTopStorySpider(scrapy.Spider):
                 i["origin"] = "hacker_news"
                 #
                 found_item = self.HackerNewsTopStory.query.filter(
-                    self.HackerNewsTopStory.id == i["id"]
+                    self.HackerNewsTopStory.hn_id == i["hn_id"]
                 ).first()
                 #
                 if found_item:
                     self.HackerNewsTopStory.query.filter(
-                        self.HackerNewsTopStory.id == i["id"]
+                        self.HackerNewsTopStory.hn_id == i["hn_id"]
                     ).update(
                         {
-                            "parsed_time": datetime.strftime(
-                                datetime.now(), "%Y-%m-%d %H:%M:%S.%f"
-                            )[:-3],
+                            # "parsed_time": datetime.strftime(
+                            #     datetime.now(), "%Y-%m-%d %H:%M:%S.%f"
+                            # )[:-3],
                             # "hn_url": i["hn_url"],
-                            "id": i["id"],
+                            "parsed_time": i["parsed_time"],
+                            "hn_id": i["hn_id"],
                             "deleted": i["deleted"],
                             "type": i["type"],
                             "by": i["by"],
@@ -92,7 +93,6 @@ class HackerNewsTopStorySpider(scrapy.Spider):
                     i.pop("item_order")
                     data = self.HackerNewsTopStory(**i)
                     self.session.add(data)
-            #
             self.session.commit()
             self.session.close()
         
@@ -142,7 +142,7 @@ class HackerNewsTopStorySpider(scrapy.Spider):
             #     scrape_item.get("id", None)
             # )
             #
-            result_dict["id"] = scrape_item.get("id")
+            result_dict["hn_id"] = scrape_item.get("id")
             result_dict["deleted"] = scrape_item.get("deleted")
             result_dict["type"] = scrape_item.get("type")
             result_dict["by"] = scrape_item.get("by")
