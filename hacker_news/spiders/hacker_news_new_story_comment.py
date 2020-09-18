@@ -1,5 +1,7 @@
 import json
 import os
+import sys
+import glob
 import scrapy
 import logging
 from scrapy.exceptions import CloseSpider
@@ -8,7 +10,7 @@ from sqlalchemy import create_engine, desc
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import sessionmaker, scoped_session, Session
 from sqlalchemy.exc import OperationalError
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,6 +21,28 @@ class HackerNewsNewStoryCommentSpider(scrapy.Spider):
 
     def __init__(self, **kwargs):
         self.list_of_items = []
+        pid = str(os.getpid())
+        try:
+            self.process_name = glob.glob(
+                f"/usr/src/hacker_news_parser/{self.name}*"
+            )[0]
+            process_time = os.stat(self.process_name)[-1]
+            process_time = datetime.fromtimestamp(process_time)
+            process_time = datetime.strftime(
+                process_time, "%Y-%m-%d %H:%M:%S.%f"
+            )[:-3]
+            if datetime.now() - datetime.fromisoformat(process_time) >= timedelta(minutes=5):
+                logging.debug('file created more then 5 min ago')
+                os.unlink(self.process_name)
+                self.process_name = None
+            self.marker = True
+        except IndexError:
+            logging.debug('No process of this spider')
+            self.process_name = None
+        if not self.process_name:
+            with open(f'{self.name}-{pid}.txt', 'w+') as f:
+                f.close()
+                self.marker = False
 
 
     def db_connect(self):
@@ -105,34 +129,45 @@ class HackerNewsNewStoryCommentSpider(scrapy.Spider):
             logging.debug('No database found.')
         except AttributeError:
             logging.debug('No tables found.')
+        try:
+            self.process_name = glob.glob(
+                f"/usr/src/hacker_news_parser/{self.name}*"
+            )[0]
+            os.unlink(self.process_name)
+            logging.debug('Succesful spider run, closing spider.')
+        except IndexError:
+            logging.debug('No file found to delete.')
 
     def start_requests(self):
-        try:
-            db_info = self.db_connect()
-            self.HackerNewsNewStory = db_info['HackerNewsNewStory']
-            self.HackerNewsNewStoryComment = db_info['HackerNewsNewStoryComment']
-            found_item = (
-                self.HackerNewsNewStory.query.with_entities(self.HackerNewsNewStory.kids)
-                .order_by(desc(self.HackerNewsNewStory.parsed_time))
-                .limit(500)
-            )
-            for kid in found_item:
-                list_of_comments = kid.kids
-                if not list_of_comments:
-                    logging.debug("No comments to parse, skipping.")
-                    continue
-                for item in enumerate(list_of_comments):
-                    url = f"https://hacker-news.firebaseio.com/v0/item/{item[1]}.json"
-                    yield Request(
-                        url=url,
-                        callback=self.item_parse,
-                        dont_filter=True,
-                        meta={"item_order": item[0], "value": item[1]},
-                    )
-        except OperationalError:
-            logging.debug('No database found.')
-        except AttributeError:
-            logging.debug('No tables found.')
+        if self.marker == True:
+            logging.debug('Runtime file found, closing spider.')
+        else:
+            try:
+                db_info = self.db_connect()
+                self.HackerNewsNewStory = db_info['HackerNewsNewStory']
+                self.HackerNewsNewStoryComment = db_info['HackerNewsNewStoryComment']
+                found_item = (
+                    self.HackerNewsNewStory.query.with_entities(self.HackerNewsNewStory.kids)
+                    .order_by(desc(self.HackerNewsNewStory.parsed_time))
+                    .limit(500)
+                )
+                for kid in found_item:
+                    list_of_comments = kid.kids
+                    if not list_of_comments:
+                        logging.debug("No comments to parse, skipping.")
+                        continue
+                    for item in enumerate(list_of_comments):
+                        url = f"https://hacker-news.firebaseio.com/v0/item/{item[1]}.json"
+                        yield Request(
+                            url=url,
+                            callback=self.item_parse,
+                            dont_filter=True,
+                            meta={"item_order": item[0], "value": item[1]},
+                        )
+            except OperationalError:
+                logging.debug('No database found.')
+            except AttributeError:
+                logging.debug('No tables found.')
 
     def item_parse(self, response):
         scrape_item = json.loads(response.text)
