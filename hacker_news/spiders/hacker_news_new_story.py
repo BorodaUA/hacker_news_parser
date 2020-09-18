@@ -31,7 +31,7 @@ class HackerNewsNewStorySpider(scrapy.Spider):
             sessionmaker(autocommit=False, autoflush=False, bind=self.engine,)
         )
         self.HackerNewsNewStory.query = self.Base.session.query_property()
-        self.session = Session(self.engine)
+        self.session = self.Base.session
         return {
             'HackerNewsNewStory': self.HackerNewsNewStory, 
             'session': self.session 

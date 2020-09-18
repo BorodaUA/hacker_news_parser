@@ -29,7 +29,7 @@ class HackerNewsTopStorySpider(scrapy.Spider):
             sessionmaker(autocommit=False, autoflush=False, bind=self.engine,)
         )
         self.HackerNewsTopStory.query = self.Base.session.query_property()
-        self.session = Session(self.engine)
+        self.session = self.Base.session
         return {
             'HackerNewsTopStory': self.HackerNewsTopStory, 
             'session': self.session 
@@ -95,7 +95,7 @@ class HackerNewsTopStorySpider(scrapy.Spider):
                     self.session.add(data)
             self.session.commit()
             self.session.close()
-        
+
         except OperationalError:
             logging.debug('No database found.')
         except AttributeError:

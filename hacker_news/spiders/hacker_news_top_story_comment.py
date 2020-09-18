@@ -32,7 +32,7 @@ class HackerNewsTopStoryCommentSpider(scrapy.Spider):
         )
         self.HackerNewsTopStory.query = self.Base.session.query_property()
         self.HackerNewsTopStoryComment.query = self.Base.session.query_property()
-        self.session = Session(self.engine)
+        self.session = self.Base.session
         return {
             'HackerNewsTopStory':self.HackerNewsTopStory, 
             'HackerNewsTopStoryComment': self.HackerNewsTopStoryComment,
